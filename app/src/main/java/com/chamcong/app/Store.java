@@ -11,7 +11,8 @@ import java.util.Map;
 /** Lưu dữ liệu bằng SharedPreferences (rất nhẹ). */
 final class Store {
     static final String WORK = "W";   // đã chấm công
-    static final String OFF = "O";    // nghỉ
+    static final String OFF = "O";    // nghỉ tự do (không tính công)
+    static final String LEAVE = "P";  // nghỉ phép (VẪN tính công)
     static final String OT = "T";     // tăng ca (ngày không theo lịch, vẫn tính công)
 
     private final SharedPreferences p;
@@ -68,15 +69,32 @@ final class Store {
         e.apply();
     }
 
-    /** @return {số công, số nghỉ} của tháng. */
+    /**
+     * Có cần nhắc nhở cho sự kiện này không?
+     * - Đã chọn nghỉ phép / nghỉ tự do -> không nhắc gì nữa trong ngày đó.
+     * - Đã chấm công rồi -> không nhắc "chấm công vào ca" (type 0) nữa,
+     *   nhưng vẫn nhắc ký sổ (type 1) và chấm công ra về (type 2).
+     */
+    boolean shouldRemind(String day, int type) {
+        String s = status(day);
+        if (OFF.equals(s) || LEAVE.equals(s)) return false;
+        if ((WORK.equals(s) || OT.equals(s)) && type == 0) return false;
+        return true;
+    }
+
+    /** @return {số công (đã gồm cả nghỉ phép), số nghỉ tự do, số ngày nghỉ phép} của tháng. */
     int[] count(YearMonth ym) {
-        int work = 0, off = 0;
+        int work = 0, off = 0, leave = 0;
         for (int d = 1; d <= ym.lengthOfMonth(); d++) {
             String s = status(ym.atDay(d).toString());
             if (s == null) continue;
-            if (OFF.equals(s)) off++;
-            else work++;
+            if (OFF.equals(s)) {
+                off++;
+            } else {
+                work++;                       // chấm công / tăng ca / nghỉ phép đều tính công
+                if (LEAVE.equals(s)) leave++;
+            }
         }
-        return new int[]{work, off};
+        return new int[]{work, off, leave};
     }
 }

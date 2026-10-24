@@ -19,7 +19,7 @@ public class AlarmReceiver extends BroadcastReceiver {
             int type = i.getIntExtra("type", 0);
             if (day != null) {
                 boolean test = "TEST".equals(day);
-                if (test || (st.enabled() && st.status(day) == null)) {
+                if (test || (st.enabled() && st.shouldRemind(day, type))) {
                     try {
                         Popup.show(c, day, type);
                     } catch (Throwable ignored) {

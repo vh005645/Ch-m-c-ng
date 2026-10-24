@@ -17,16 +17,16 @@ final class Schedule {
     // Vị trí của từng kíp trong chu kỳ tại ngày mốc
     static final int[] KIP_OFFSET = {4, 6, 2, 0};
 
-    // Chu kỳ: 0 ca1 đầu, 1 ca1 cuối, 2 nghỉ (tour xịn), 3 ca2 đầu, 4 ca2 cuối, 5 ca3 đầu, 6 ca3 cuối, 7 nghỉ (tour đểu)
+    // Chu kỳ: 0 ca1 đầu, 1 ca1 cuối, 2 tour xịn, 3 ca2 đầu, 4 ca2 cuối, 5 ca3 đầu, 6 ca3 cuối, 7 tour đểu
     static final int[] CYCLE_SHIFT = {1, 1, 0, 2, 2, 3, 3, 0};
     static final String[] CYCLE_LABEL = {
-            "Ca 1 đầu", "Ca 1 cuối", "Nghỉ (tour xịn)", "Ca 2 đầu",
-            "Ca 2 cuối", "Ca 3 đầu", "Ca 3 cuối", "Nghỉ (tour đểu)"};
+            "Ca 1 đầu", "Ca 1 cuối", "Tour xịn", "Ca 2 đầu",
+            "Ca 2 cuối", "Ca 3 đầu", "Ca 3 cuối", "Tour đểu"};
     static final String[] CYCLE_SHORT = {"1đ", "1c", "", "2đ", "2c", "3đ", "3c", ""};
 
     static final class Info {
         boolean work;
-        String label = "Nghỉ";
+        String label = "Tour";
         String shortLabel = "";
         LocalTime start;
         LocalTime end;
@@ -86,12 +86,16 @@ final class Schedule {
 
     static final class Event {
         String day;   // yyyy-MM-dd (ngày bắt đầu ca)
-        int type;     // 0 = trước giờ vào 5 phút, 1 = sau giờ vào 5 phút, 2 = hết ca
+        int type;     // 0 = trước giờ vào 5 phút, 1 = sau giờ vào 5 phút, 2 = trước giờ về 5 phút
         long time;
     }
 
-    /** Sự kiện nhắc nhở kế tiếp sau thời điểm now. */
-    static Event next(int kip, long now) {
+    /**
+     * Sự kiện nhắc nhở kế tiếp sau thời điểm now.
+     * Chỉ xét NGÀY ĐI LÀM (ngày tour/nghỉ không có nhắc nhở). Ngày đã chọn nghỉ phép /
+     * nghỉ tự do cũng được bỏ qua (xem Store.shouldRemind).
+     */
+    static Event next(int kip, long now, Store st) {
         if (kip < 0) return null;
         LocalDate today = LocalDate.now();
         Event best = null;
@@ -100,8 +104,9 @@ final class Schedule {
             Info in = info(d, kip);
             if (!in.work) continue;
             long s = in.startMillis();
-            long[] t = {s - 5 * 60000L, s + 5 * 60000L, in.endMillis()};
+            long[] t = {s - 5 * 60000L, s + 5 * 60000L, in.endMillis() - 5 * 60000L};
             for (int k = 0; k < 3; k++) {
+                if (st != null && !st.shouldRemind(d.toString(), k)) continue;
                 if (t[k] > now && (best == null || t[k] < best.time)) {
                     best = new Event();
                     best.day = d.toString();
@@ -111,6 +116,17 @@ final class Schedule {
             }
         }
         return best;
+    }
+
+    /** Ca làm việc gần nhất (từ hôm nay trở đi) - dùng cho popup thử nghiệm. */
+    static Info nextWorkInfo(int kip) {
+        if (kip < 0) return null;
+        LocalDate today = LocalDate.now();
+        for (int i = 0; i < 9; i++) {
+            Info in = info(today.plusDays(i), kip);
+            if (in.work) return in;
+        }
+        return null;
     }
 
     static String typeName(int type) {

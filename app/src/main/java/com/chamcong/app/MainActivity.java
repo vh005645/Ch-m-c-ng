@@ -22,6 +22,7 @@ import android.view.WindowInsetsController;
 import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -30,19 +31,18 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 public class MainActivity extends Activity {
 
     private static final int GREEN = 0xFF2E9E4F, RED = 0xFFD93636, AMBER = 0xFFFFE3A3,
-            BLUE = 0xFF1E73D9, DARK = 0xFF1F2933, GRAY = 0xFF7B8794, BG = 0xFFF4F6FA;
+            BLUE = 0xFF1E73D9, DARK = 0xFF1F2933, GRAY = 0xFF7B8794, BG = 0xFFF4F6FA,
+            TAB_ON = 0xFF4DA3FF, TAB_OFF = 0xFF8A94A0;
     private static final DateTimeFormatter DM = DateTimeFormatter.ofPattern("dd/MM");
+    private static final DateTimeFormatter DMY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm");
-    private static final DateTimeFormatter DMHM = DateTimeFormatter.ofPattern("dd/MM HH:mm");
     private static final String[] DOW = {"Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"};
     private static final String[] DOW_SHORT = {"T2", "T3", "T4", "T5", "T6", "T7", "CN"};
 
@@ -54,13 +54,15 @@ public class MainActivity extends Activity {
     private FrameLayout content;
     private View calView, setView;
     private TextView tabCal, tabSet;
+    private LinearLayout colCal, colSet;
+    private View indCal, indSet;
 
-    private TextView todayInfo, monthLabel, summary;
+    private TextView dateLine, kipLine, monthLabel, summary, summary2;
     private Button prev, next;
     private LinearLayout grid;
 
     private RadioGroup kipGroup;
-    private TextView nextInfo, planText;
+    private TextView planText;
     private LinearLayout permBox;
 
     private final CompoundButton.OnCheckedChangeListener swListener =
@@ -114,21 +116,45 @@ public class MainActivity extends Activity {
     }
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
+        final LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
+
+        final LinearLayout header = new LinearLayout(this);
+        final LinearLayout tabs = new LinearLayout(this);
+
+        // Header trắng ôm sát thanh trạng thái; thanh tab đen ôm sát thanh điều hướng
         root.setOnApplyWindowInsetsListener((v, ins) -> {
             Insets i = ins.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-            v.setPadding(i.left, i.top, i.right, i.bottom);
+            v.setPadding(i.left, 0, i.right, 0);
+            header.setPadding(dp(16), i.top + dp(8), dp(16), dp(8));
+            tabs.setPadding(0, 0, 0, i.bottom);
             return WindowInsets.CONSUMED;
         });
 
-        LinearLayout header = new LinearLayout(this);
+        // ---- Header: logo (góc trái) + "Nhiệt Khí Thải" bên dưới; công tắc nhắc nhở bên phải
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(16), dp(10), dp(16), dp(6));
-        TextView title = text("Chấm công", 22, DARK, true);
-        header.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
+        header.setBackgroundColor(Color.WHITE);
+        header.setPadding(dp(16), dp(8), dp(16), dp(8));
+
+        // Logo và chữ cùng căn giữa theo một trục dọc (chữ nằm ngay dưới, chính giữa logo)
+        LinearLayout brand = new LinearLayout(this);
+        brand.setOrientation(LinearLayout.VERTICAL);
+        brand.setGravity(Gravity.CENTER_HORIZONTAL);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.logo_ht);
+        logo.setAdjustViewBounds(true);
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        logo.setContentDescription("Logo");
+        brand.addView(logo, new LinearLayout.LayoutParams(-2, dp(54)));
+        TextView dept = text("Nhiệt Khí Thải", 13, DARK, true);
+        dept.setGravity(Gravity.CENTER);
+        dept.setPadding(0, dp(2), 0, 0);
+        brand.addView(dept, new LinearLayout.LayoutParams(-2, -2));
+        header.addView(brand, new LinearLayout.LayoutParams(-2, -2));
+        header.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));   // đẩy công tắc sang phải
+
         sw = new Switch(this);
         sw.setText("Bật nhắc nhở  ");
         sw.setTextSize(14);
@@ -138,6 +164,10 @@ public class MainActivity extends Activity {
         header.addView(sw);
         root.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
+        View line = new View(this);
+        line.setBackgroundColor(0xFFDDE3EC);
+        root.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+
         content = new FrameLayout(this);
         calView = buildCalendar();
         setView = buildSettings();
@@ -145,38 +175,53 @@ public class MainActivity extends Activity {
         content.addView(setView, new FrameLayout.LayoutParams(-1, -1));
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        LinearLayout tabs = new LinearLayout(this);
+        // ---- Thanh tab: nền đen, 2 tab ngăn cách bằng vạch dọc, tab đang chọn có gạch sáng phía trên
         tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setBackgroundColor(Color.WHITE);
-        tabCal = tab("Lịch chấm công", 0);
-        tabSet = tab("Cài đặt ca-kíp", 1);
-        tabs.addView(tabCal, new LinearLayout.LayoutParams(0, dp(54), 1f));
-        tabs.addView(tabSet, new LinearLayout.LayoutParams(0, dp(54), 1f));
+        tabs.setGravity(Gravity.CENTER_VERTICAL);
+        tabs.setBackgroundColor(Color.BLACK);
+        tabCal = text("Lịch chấm công", 15, TAB_OFF, true);
+        tabSet = text("Cài đặt ca-kíp", 15, TAB_OFF, true);
+        indCal = new View(this);
+        indSet = new View(this);
+        colCal = tabColumn(tabCal, indCal, 0);
+        colSet = tabColumn(tabSet, indSet, 1);
+        tabs.addView(colCal, new LinearLayout.LayoutParams(0, dp(56), 1f));
+        View sep = new View(this);
+        sep.setBackgroundColor(0xFF5A6470);
+        tabs.addView(sep, new LinearLayout.LayoutParams(dp(1), dp(32)));
+        tabs.addView(colSet, new LinearLayout.LayoutParams(0, dp(56), 1f));
         root.addView(tabs, new LinearLayout.LayoutParams(-1, -2));
 
         setContentView(root);
         WindowInsetsController ic = getWindow().getInsetsController();
         if (ic != null) {
+            // Thanh trạng thái (nền trắng): icon tối. Thanh điều hướng (nền đen): icon sáng.
             ic.setSystemBarsAppearance(
-                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                            | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
                     WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                             | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
         }
     }
 
-    private TextView tab(String s, final int idx) {
-        TextView t = text(s, 15, GRAY, true);
-        t.setGravity(Gravity.CENTER);
-        t.setOnClickListener(v -> showTab(idx));
-        return t;
+    private LinearLayout tabColumn(TextView label, View indicator, final int idx) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        label.setGravity(Gravity.CENTER);
+        col.addView(indicator, new LinearLayout.LayoutParams(-1, dp(3)));
+        col.addView(label, new LinearLayout.LayoutParams(-1, 0, 1f));
+        col.setOnClickListener(v -> showTab(idx));
+        return col;
     }
 
     private void showTab(int i) {
         calView.setVisibility(i == 0 ? View.VISIBLE : View.GONE);
         setView.setVisibility(i == 1 ? View.VISIBLE : View.GONE);
-        tabCal.setTextColor(i == 0 ? BLUE : GRAY);
-        tabSet.setTextColor(i == 1 ? BLUE : GRAY);
+        tabCal.setTextColor(i == 0 ? Color.WHITE : TAB_OFF);
+        tabSet.setTextColor(i == 1 ? Color.WHITE : TAB_OFF);
+        indCal.setBackgroundColor(i == 0 ? TAB_ON : Color.TRANSPARENT);
+        indSet.setBackgroundColor(i == 1 ? TAB_ON : Color.TRANSPARENT);
+        colCal.setBackgroundColor(i == 0 ? 0xFF1C2127 : Color.BLACK);
+        colSet.setBackgroundColor(i == 1 ? 0xFF1C2127 : Color.BLACK);
     }
 
     // ------------------------------------------------------------ Tab 1: lịch
@@ -186,9 +231,13 @@ public class MainActivity extends Activity {
         v.setOrientation(LinearLayout.VERTICAL);
         v.setPadding(dp(10), dp(4), dp(10), dp(4));
 
-        todayInfo = text("", 14, DARK, false);
-        todayInfo.setPadding(dp(6), 0, dp(6), dp(6));
-        v.addView(todayInfo);
+        // Dòng 1: ngày tháng năm. Dòng 2: Kíp ... - trạng thái (ca 1 đầu, ca 2 cuối, tour xịn ...)
+        dateLine = text("", 15, GRAY, true);
+        dateLine.setPadding(dp(6), dp(2), dp(6), 0);
+        v.addView(dateLine);
+        kipLine = text("", 18, DARK, true);
+        kipLine.setPadding(dp(6), 0, dp(6), dp(6));
+        v.addView(kipLine);
 
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
@@ -236,19 +285,23 @@ public class MainActivity extends Activity {
         legend.setOrientation(LinearLayout.HORIZONTAL);
         legend.setGravity(Gravity.CENTER);
         legend.setPadding(0, dp(6), 0, dp(2));
-        legend.addView(legendItem(GREEN, "Đã chấm công"));
-        legend.addView(legendItem(RED, "Nghỉ"));
-        legend.addView(legendItem(AMBER, "Chưa xác nhận"));
+        legend.addView(legendItem(GREEN, "Chấm công"));
+        legend.addView(legendItem(RED, "Chấm nghỉ"));
+        legend.addView(legendItem(AMBER, "Chưa chấm"));
         v.addView(legend);
 
-        TextView hint = text("đ = ca đầu, c = ca cuối. Bấm vào ngày để sửa.", 11, GRAY, false);
+        TextView hint = text("đ = ca đầu, c = ca cuối, chấm xanh nhỏ = nghỉ phép (vẫn tính công). Bấm vào ngày để sửa.", 11, GRAY, false);
         hint.setGravity(Gravity.CENTER);
         v.addView(hint);
 
         summary = text("", 19, DARK, true);
         summary.setGravity(Gravity.CENTER);
-        summary.setPadding(0, dp(8), 0, dp(8));
+        summary.setPadding(0, dp(8), 0, 0);
         v.addView(summary);
+        summary2 = text("", 13, GRAY, false);
+        summary2.setGravity(Gravity.CENTER);
+        summary2.setPadding(0, 0, 0, dp(8));
+        v.addView(summary2);
         return v;
     }
 
@@ -273,14 +326,13 @@ public class MainActivity extends Activity {
         int kip = store.kip();
         LocalDate today = LocalDate.now();
 
+        dateLine.setText(DOW[today.getDayOfWeek().getValue() - 1] + ", " + today.format(DMY));
         if (kip < 0) {
-            todayInfo.setText("Chưa chọn kíp - vào tab Cài đặt ca-kíp để chọn.");
+            kipLine.setText("Chưa chọn kíp - vào tab Cài đặt ca-kíp để chọn.");
         } else {
             Schedule.Info in = Schedule.info(today, kip);
-            String t = in.work
-                    ? in.label + " (" + in.start.format(HM) + " - " + in.end.format(HM) + ")"
-                    : in.label;
-            todayInfo.setText("Hôm nay " + today.format(DM) + " - " + Schedule.KIP_NAMES[kip] + ": " + t);
+            String state = (kip == Schedule.KIP_HC && in.work) ? "Đi làm" : in.label;
+            kipLine.setText(Schedule.KIP_NAMES[kip] + " - " + state);
         }
 
         monthLabel.setText("Tháng " + shown.getMonthValue() + "/" + shown.getYear());
@@ -310,6 +362,13 @@ public class MainActivity extends Activity {
 
         int[] cnt = store.count(shown);
         summary.setText("Tháng " + shown.getMonthValue() + ": " + cnt[0] + " công / " + cnt[1] + " nghỉ");
+        if (cnt[2] > 0) {
+            summary2.setText("(trong đó " + cnt[2] + " ngày nghỉ phép, vẫn tính công)");
+            summary2.setVisibility(View.VISIBLE);
+        } else {
+            summary2.setText("");
+            summary2.setVisibility(View.GONE);
+        }
     }
 
     private LinearLayout.LayoutParams cellParams() {
@@ -324,10 +383,17 @@ public class MainActivity extends Activity {
         int bg, fg = DARK;
         float alpha = 1f;
         String label;
+        boolean leave = false;
         if (Store.WORK.equals(st) || Store.OT.equals(st)) {
             bg = GREEN;
             fg = Color.WHITE;
             label = Store.OT.equals(st) ? "TC" : in.shortLabel;
+        } else if (Store.LEAVE.equals(st)) {
+            // Nghỉ phép: vẫn hiện ô đỏ như nghỉ, thêm chấm xanh ở góc dưới (vẫn tính công)
+            bg = RED;
+            fg = Color.WHITE;
+            label = "nghỉ";
+            leave = true;
         } else if (Store.OFF.equals(st)) {
             bg = RED;
             fg = Color.WHITE;
@@ -336,14 +402,13 @@ public class MainActivity extends Activity {
             bg = date.isBefore(today) ? AMBER : Color.WHITE;
             label = in.shortLabel;
         } else {
+            // Ngày không làm việc: hiện mờ, chữ "tour"
             bg = Color.WHITE;
             alpha = 0.35f;
-            label = "nghỉ";
+            label = kip < 0 ? "" : "tour";
         }
 
-        LinearLayout cell = new LinearLayout(this);
-        cell.setOrientation(LinearLayout.VERTICAL);
-        cell.setGravity(Gravity.CENTER);
+        FrameLayout cell = new FrameLayout(this);
         GradientDrawable g = new GradientDrawable();
         g.setColor(bg);
         g.setCornerRadius(dp(10));
@@ -351,9 +416,26 @@ public class MainActivity extends Activity {
         else g.setStroke(dp(1), 0xFFDDE3EC);
         cell.setBackground(g);
         cell.setAlpha(alpha);
-        cell.addView(text(String.valueOf(date.getDayOfMonth()), 17, fg, true));
-        TextView l = text(label, 11, fg, false);
-        cell.addView(l);
+
+        LinearLayout inner = new LinearLayout(this);
+        inner.setOrientation(LinearLayout.VERTICAL);
+        inner.setGravity(Gravity.CENTER);
+        inner.addView(text(String.valueOf(date.getDayOfMonth()), 17, fg, true));
+        inner.addView(text(label, 11, fg, false));
+        cell.addView(inner, new FrameLayout.LayoutParams(-1, -1));
+
+        if (leave) {
+            View dot = new View(this);
+            GradientDrawable dg = new GradientDrawable();
+            dg.setShape(GradientDrawable.OVAL);
+            dg.setColor(GREEN);
+            dg.setStroke(dp(1), Color.WHITE);
+            dot.setBackground(dg);
+            FrameLayout.LayoutParams dl = new FrameLayout.LayoutParams(dp(9), dp(9));
+            dl.gravity = Gravity.BOTTOM | Gravity.END;
+            dl.setMargins(0, 0, dp(4), dp(4));
+            cell.addView(dot, dl);
+        }
         cell.setOnClickListener(x -> editDay(date));
         return cell;
     }
@@ -364,19 +446,21 @@ public class MainActivity extends Activity {
         final String[] items;
         final String[] vals;
         if (in.work) {
-            items = new String[]{"Đã chấm công (tính công)", "Nghỉ", "Xóa trạng thái"};
-            vals = new String[]{Store.WORK, Store.OFF, null};
+            items = new String[]{"Đã chấm công", "Nghỉ phép", "Nghỉ tự do", "Xóa trạng thái"};
+            vals = new String[]{Store.WORK, Store.LEAVE, Store.OFF, null};
         } else {
             items = new String[]{"Tăng ca (tính công)", "Xóa trạng thái"};
             vals = new String[]{Store.OT, null};
         }
         String title = DOW[d.getDayOfWeek().getValue() - 1] + ", " + d.format(DM) + "/" + d.getYear()
-                + (in.work ? " - " + in.label : " - ngày nghỉ");
+                + " - " + in.label;
         new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setItems(items, (dlg, which) -> {
                     store.setStatus(key, vals[which]);
+                    Scheduler.scheduleNext(this);
                     refreshCal();
+                    refreshSettings();
                 })
                 .setNegativeButton("Đóng", null)
                 .show();
@@ -411,10 +495,6 @@ public class MainActivity extends Activity {
         });
         l.addView(kipGroup);
 
-        nextInfo = text("", 15, DARK, true);
-        nextInfo.setPadding(0, dp(12), 0, dp(4));
-        l.addView(nextInfo);
-
         l.addView(section("Lịch 8 ngày tới"));
         planText = text("", 14, DARK, false);
         planText.setLineSpacing(dp(3), 1f);
@@ -423,8 +503,10 @@ public class MainActivity extends Activity {
         l.addView(section("Giờ làm"));
         TextView hours = text("Ca 1: 06:00 - 14:00\nCa 2: 14:00 - 22:00\nCa 3: 22:00 - 06:00 hôm sau\n"
                 + "Hành chính: 07:00 - 11:30, 13:30 - 17:00\n\n"
-                + "Nhắc lúc: trước giờ vào 5 phút (chấm công), sau giờ vào 5 phút (ký sổ), và khi hết ca "
-                + "(xác nhận chấm công ra về để tính công).", 14, DARK, false);
+                + "Nhắc 3 lần mỗi ca (chỉ nhắc ngày đi làm, ngày tour không nhắc):\n"
+                + "1) Trước giờ vào 5 phút: chấm công (Chấm công / Nghỉ phép / Nghỉ tự do)\n"
+                + "2) Sau giờ vào 5 phút: ký sổ công việc (Xác nhận)\n"
+                + "3) Trước giờ về 5 phút: chấm công ra về (Xác nhận)", 14, DARK, false);
         hours.setLineSpacing(dp(3), 1f);
         l.addView(hours);
 
@@ -451,7 +533,7 @@ public class MainActivity extends Activity {
         test.setText("Thử popup sau 10 giây");
         test.setOnClickListener(x -> {
             Scheduler.scheduleTest(this, 10_000);
-            Toast.makeText(this, "Hãy khóa màn hình hoặc thoát app - popup sẽ hiện sau 10 giây",
+            Toast.makeText(this, "Hãy khóa màn hình hoặc thoát app - popup thử nghiệm sẽ hiện sau 10 giây",
                     Toast.LENGTH_LONG).show();
         });
         l.addView(test);
@@ -474,20 +556,6 @@ public class MainActivity extends Activity {
         sw.setChecked(store.enabled());
         sw.setOnCheckedChangeListener(swListener);
         updating = false;
-
-        if (!store.enabled()) {
-            nextInfo.setText("App đang TẮT - sẽ không có nhắc nhở nào.");
-        } else if (k < 0) {
-            nextInfo.setText("Hãy chọn kíp đang làm để bật nhắc nhở.");
-        } else {
-            Scheduler.Next n = Scheduler.peek(this);
-            if (n == null) {
-                nextInfo.setText("Chưa có nhắc nhở nào sắp tới.");
-            } else {
-                String when = Instant.ofEpochMilli(n.event.time).atZone(ZoneId.systemDefault()).format(DMHM);
-                nextInfo.setText("Nhắc nhở kế tiếp: " + Schedule.typeName(n.event.type) + " - " + when);
-            }
-        }
 
         StringBuilder sb = new StringBuilder();
         if (k < 0) {

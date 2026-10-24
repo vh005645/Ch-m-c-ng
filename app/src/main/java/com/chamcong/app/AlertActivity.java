@@ -38,10 +38,10 @@ public class AlertActivity extends Activity {
             return;
         }
         Popup.Content ct = Popup.content(this, day, type);
-        View v = PopupView.build(this, ct, new Consumer<Boolean>() {
+        View v = PopupView.build(this, ct, new Consumer<Integer>() {
             @Override
-            public void accept(Boolean confirm) {
-                ActionReceiver.apply(AlertActivity.this, day, type, confirm);
+            public void accept(Integer action) {
+                ActionReceiver.apply(AlertActivity.this, day, type, action);
                 finish();
             }
         });

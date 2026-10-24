@@ -21,7 +21,9 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.LocalTime;
 
-/** Popup nhắc nhở: thông báo toàn màn hình + lớp phủ che màn hình + rung (không âm thanh). */
+/** Popup nhắc nhở: thông báo toàn màn hình + lớp phủ che màn hình + rung (không âm thanh).
+ *  3 lần nhắc / ca: trước giờ vào 5' (Chấm công / Nghỉ phép / Nghỉ tự do), sau giờ vào 5' (ký sổ),
+ *  trước giờ về 5' (chấm công ra về). */
 final class Popup {
     static final int NOTIF_ID = 1001;
     static final String CHANNEL = "nhac_nho_cham_cong";
@@ -40,50 +42,67 @@ final class Popup {
     };
 
     static final class Content {
-        String kicker, time, title, body, confirmText = "XÁC NHẬN", offText = "NGHỈ";
+        String kicker, time, title, body;
+        boolean test = false;   // popup thử nghiệm: hiện chữ THỬ NGHIỆM nhấp nháy ở trên đầu
+        // Các nút: mặc định 1 nút "Xác nhận"
+        String[] labels = {"Xác nhận"};
+        int[] actions = {ActionReceiver.ACT_OK};
+        String[] colors = {"#2E9E4F"};
+
+        /** Lần nhắc 1: Chấm công / Nghỉ phép / Nghỉ tự do. */
+        void threeButtons() {
+            labels = new String[]{"Chấm công", "Nghỉ phép", "Nghỉ tự do"};
+            actions = new int[]{ActionReceiver.ACT_OK, ActionReceiver.ACT_LEAVE, ActionReceiver.ACT_OFF};
+            colors = new String[]{"#2E9E4F", "#1E73D9", "#D93636"};
+        }
     }
 
     static Content content(Context c, String day, int type) {
         Content ct = new Content();
         if ("TEST".equals(day)) {
-            ct.kicker = "THỬ NGHIỆM";
-            ct.time = LocalTime.now().format(HM);
-            ct.title = "Thử popup nhắc nhở";
-            ct.body = "Máy rung đến khi bạn bấm Xác nhận hoặc Nghỉ.\nBấm nút nào cũng không ảnh hưởng dữ liệu chấm công.";
+            // Popup thử nghiệm: hiển thị y hệt lần nhắc chấm công thật (lần 1) của ca gần nhất
+            Schedule.Info in = Schedule.nextWorkInfo(new Store(c).kip());
+            fill(ct, in, 0);
+            ct.test = true;
             return ct;
         }
-        Schedule.Info in = Schedule.info(LocalDate.parse(day), new Store(c).kip());
-        String start = in.start != null ? in.start.format(HM) : "";
-        String end = in.end != null ? in.end.format(HM) : "";
+        fill(ct, Schedule.info(LocalDate.parse(day), new Store(c).kip()), type);
+        return ct;
+    }
+
+    private static void fill(Content ct, Schedule.Info in, int type) {
+        boolean hasShift = in != null && in.start != null;
+        String label = hasShift ? in.label : "Ca làm việc";
+        String start = hasShift ? in.start.format(HM) : LocalTime.now().format(HM);
+        String end = hasShift && in.end != null ? in.end.format(HM) : start;
         switch (type) {
             case 0:
                 ct.kicker = "CHẤM CÔNG VÀO CA";
                 ct.time = start;
-                ct.title = "Sắp vào " + in.label.toLowerCase();
-                ct.body = in.label + " bắt đầu lúc " + start + " (còn 5 phút).\nHãy chấm công vào ca.";
+                ct.title = "Sắp vào " + label.toLowerCase();
+                ct.body = label + " bắt đầu lúc " + start + " (còn 5 phút).\nHãy chấm công vào ca.";
+                ct.threeButtons();
                 break;
             case 1:
                 ct.kicker = "KÝ SỔ CÔNG VIỆC";
                 ct.time = start;
                 ct.title = "Nhớ ký sổ công việc";
-                ct.body = "Đã qua giờ vào " + in.label.toLowerCase() + " (" + start + ") 5 phút.\nHãy ký sổ công việc.";
+                ct.body = "Đã qua giờ vào " + label.toLowerCase() + " (" + start + ") 5 phút.\nHãy ký sổ công việc.";
                 break;
             default:
-                ct.kicker = "HẾT CA - CHẤM CÔNG RA VỀ";
+                ct.kicker = "CHẤM CÔNG RA VỀ";
                 ct.time = end;
-                ct.title = in.label + " đã kết thúc";
-                ct.body = "Hết ca lúc " + end + ".\nBạn đã chấm công rời công ty chưa?\nBấm XÁC NHẬN để tính công hôm nay.";
-                ct.confirmText = "XÁC NHẬN (TÍNH CÔNG)";
+                ct.title = "Sắp hết " + label.toLowerCase();
+                ct.body = label + " kết thúc lúc " + end + " (còn 5 phút).\nHãy chấm công ra về.";
                 break;
         }
-        return ct;
     }
 
     static void ensureChannel(Context c) {
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         NotificationChannel ch = new NotificationChannel(CHANNEL, "Nhắc nhở chấm công",
                 NotificationManager.IMPORTANCE_HIGH);
-        ch.setDescription("Popup nhắc chấm công, ký sổ, xác nhận ra về (rung, không âm thanh)");
+        ch.setDescription("Popup nhắc chấm công, ký sổ, chấm công ra về (rung, không âm thanh)");
         ch.setSound(null, null);
         ch.enableVibration(true);
         ch.setVibrationPattern(new long[]{0, 600, 300, 600});
@@ -104,13 +123,13 @@ final class Popup {
         H.postDelayed(TIMEOUT, MAX_MS);
     }
 
-    private static PendingIntent actionPi(Context c, String day, int type, boolean confirm) {
+    private static PendingIntent actionPi(Context c, String day, int type, int action) {
         Intent i = new Intent(c, ActionReceiver.class);
         i.setAction(ActionReceiver.ACTION);
         i.putExtra("day", day);
         i.putExtra("type", type);
-        i.putExtra("confirm", confirm);
-        return PendingIntent.getBroadcast(c, 100 + (confirm ? 1 : 0), i,
+        i.putExtra("action", action);
+        return PendingIntent.getBroadcast(c, 100 + action, i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
@@ -123,14 +142,9 @@ final class Popup {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Icon icon = Icon.createWithResource(c, R.drawable.ic_stat_clock);
-        Notification.Action okA = new Notification.Action.Builder(icon,
-                "Xác nhận", actionPi(c, day, type, true)).build();
-        Notification.Action offA = new Notification.Action.Builder(icon,
-                "Nghỉ", actionPi(c, day, type, false)).build();
-
-        Notification n = new Notification.Builder(c, CHANNEL)
+        Notification.Builder nb = new Notification.Builder(c, CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_clock)
-                .setContentTitle(ct.kicker + " - " + ct.time)
+                .setContentTitle((ct.test ? "[THỬ NGHIỆM] " : "") + ct.kicker + " - " + ct.time)
                 .setContentText(ct.title)
                 .setStyle(new Notification.BigTextStyle().bigText(ct.body))
                 .setCategory(Notification.CATEGORY_ALARM)
@@ -139,10 +153,12 @@ final class Popup {
                 .setOngoing(true)
                 .setAutoCancel(false)
                 .setContentIntent(fsPi)
-                .setFullScreenIntent(fsPi, true)
-                .addAction(okA)
-                .addAction(offA)
-                .build();
+                .setFullScreenIntent(fsPi, true);
+        for (int k = 0; k < ct.labels.length; k++) {
+            nb.addAction(new Notification.Action.Builder(icon, ct.labels[k],
+                    actionPi(c, day, type, ct.actions[k])).build());
+        }
+        Notification n = nb.build();
         try {
             c.getSystemService(NotificationManager.class).notify(NOTIF_ID, n);
         } catch (Throwable ignored) {
@@ -182,10 +198,10 @@ final class Popup {
         if (!Settings.canDrawOverlays(c)) return;
         try {
             WindowManager wm = c.getSystemService(WindowManager.class);
-            View v = PopupView.build(c, ct, new java.util.function.Consumer<Boolean>() {
+            View v = PopupView.build(c, ct, new java.util.function.Consumer<Integer>() {
                 @Override
-                public void accept(Boolean confirm) {
-                    ActionReceiver.apply(c, day, type, confirm);
+                public void accept(Integer action) {
+                    ActionReceiver.apply(c, day, type, action);
                 }
             });
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(

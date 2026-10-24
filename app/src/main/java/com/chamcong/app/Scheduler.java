@@ -30,7 +30,6 @@ final class Scheduler {
     static void scheduleNext(Context ctx) {
         Context c = ctx.getApplicationContext();
         AlarmManager am = c.getSystemService(AlarmManager.class);
-        Store st = new Store(c);
         Scheduler.Next n = peek(c);
         if (n == null) {
             am.cancel(firePi(c, RC_MAIN, null, 0));
@@ -48,7 +47,7 @@ final class Scheduler {
     static Next peek(Context c) {
         Store st = new Store(c);
         if (!st.enabled()) return null;
-        Schedule.Event e = Schedule.next(st.kip(), System.currentTimeMillis());
+        Schedule.Event e = Schedule.next(st.kip(), System.currentTimeMillis(), st);
         if (e == null) return null;
         Next n = new Next();
         n.event = e;
