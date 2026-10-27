@@ -29,6 +29,24 @@ final class Store {
         p.edit().putBoolean("enabled", v).apply();
     }
 
+    /** Phát tiếng chuông khi nhắc (mặc định bật). */
+    boolean sound() {
+        return p.getBoolean("sound", true);
+    }
+
+    void setSound(boolean v) {
+        p.edit().putBoolean("sound", v).apply();
+    }
+
+    /** Rung khi nhắc (mặc định bật). */
+    boolean vibrate() {
+        return p.getBoolean("vibrate", true);
+    }
+
+    void setVibrate(boolean v) {
+        p.edit().putBoolean("vibrate", v).apply();
+    }
+
     /** 0..3 = kíp A..D, 4 = hành chính, -1 = chưa chọn. */
     int kip() {
         return p.getInt("kip", -1);

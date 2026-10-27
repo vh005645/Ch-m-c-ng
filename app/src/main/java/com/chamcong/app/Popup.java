@@ -9,8 +9,11 @@ import android.content.Intent;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.Icon;
 import android.media.AudioAttributes;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
@@ -21,12 +24,17 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.LocalTime;
 
-/** Popup nhắc nhở: thông báo toàn màn hình + lớp phủ che màn hình + rung (không âm thanh).
- *  3 lần nhắc / ca: trước giờ vào 5' (Chấm công / Nghỉ phép / Nghỉ tự do), sau giờ vào 5' (ký sổ),
- *  trước giờ về 5' (chấm công ra về). */
+/** Popup nhắc nhở: thông báo toàn màn hình + lớp phủ che màn hình + tiếng chuông + rung
+ *  (chuông và rung bật/tắt riêng trong tab Cài đặt).
+ *  3 lần nhắc / ca: trước giờ vào 2' (Chấm công / Nghỉ phép / Nghỉ tự do, chuông cham_cong),
+ *  sau giờ vào 2' (ký sổ, chuông ki_so_cv), trước giờ về 2' (chấm công ra về, chuông cham_cong). */
 final class Popup {
     static final int NOTIF_ID = 1001;
-    static final String CHANNEL = "nhac_nho_cham_cong";
+    // Kênh mới hoàn toàn im lặng (không âm thanh, không rung): chuông và rung do app tự điều khiển
+    // để bật/tắt được. Kênh cũ "nhac_nho_cham_cong" có bật rung ở cấp hệ thống nên phải xóa đi.
+    static final String CHANNEL = "nhac_nho_v2";
+    private static final String LEGACY_CHANNEL = "nhac_nho_cham_cong";
+    private static final long SOUND_GAP_MS = 3000;   // nghỉ giữa các lần chuông lặp lại
     static final long MAX_MS = 15 * 60 * 1000L;
     private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm");
 
@@ -80,32 +88,35 @@ final class Popup {
                 ct.kicker = "CHẤM CÔNG VÀO CA";
                 ct.time = start;
                 ct.title = "Sắp vào " + label.toLowerCase();
-                ct.body = label + " bắt đầu lúc " + start + " (còn 5 phút).\nHãy chấm công vào ca.";
+                ct.body = label + " bắt đầu lúc " + start + " (còn " + Schedule.REMIND_MIN + " phút).\nHãy chấm công vào ca.";
                 ct.threeButtons();
                 break;
             case 1:
                 ct.kicker = "KÝ SỔ CÔNG VIỆC";
                 ct.time = start;
                 ct.title = "Nhớ ký sổ công việc";
-                ct.body = "Đã qua giờ vào " + label.toLowerCase() + " (" + start + ") 5 phút.\nHãy ký sổ công việc.";
+                ct.body = "Đã qua giờ vào " + label.toLowerCase() + " (" + start + ") " + Schedule.REMIND_MIN + " phút.\nHãy ký sổ công việc.";
                 break;
             default:
                 ct.kicker = "CHẤM CÔNG RA VỀ";
                 ct.time = end;
                 ct.title = "Sắp hết " + label.toLowerCase();
-                ct.body = label + " kết thúc lúc " + end + " (còn 5 phút).\nHãy chấm công ra về.";
+                ct.body = label + " kết thúc lúc " + end + " (còn " + Schedule.REMIND_MIN + " phút).\nHãy chấm công ra về.";
                 break;
         }
     }
 
     static void ensureChannel(Context c) {
         NotificationManager nm = c.getSystemService(NotificationManager.class);
+        try {
+            nm.deleteNotificationChannel(LEGACY_CHANNEL);
+        } catch (Throwable ignored) {
+        }
         NotificationChannel ch = new NotificationChannel(CHANNEL, "Nhắc nhở chấm công",
                 NotificationManager.IMPORTANCE_HIGH);
-        ch.setDescription("Popup nhắc chấm công, ký sổ, chấm công ra về (rung, không âm thanh)");
+        ch.setDescription("Popup nhắc chấm công, ký sổ, chấm công ra về (chuông/rung do app điều khiển)");
         ch.setSound(null, null);
-        ch.enableVibration(true);
-        ch.setVibrationPattern(new long[]{0, 600, 300, 600});
+        ch.enableVibration(false);
         ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         nm.createNotificationChannel(ch);
     }
@@ -117,7 +128,9 @@ final class Popup {
         ensureChannel(c);
         final Content ct = content(c, day, type);
         postNotification(c, day, type, ct);
-        startVibration(c);
+        Store st = new Store(c);
+        if (st.sound()) startSound(c, type);
+        if (st.vibrate()) startVibration(c);
         showOverlay(c, day, type, ct);
         H.removeCallbacks(TIMEOUT);
         H.postDelayed(TIMEOUT, MAX_MS);
@@ -162,6 +175,68 @@ final class Popup {
         try {
             c.getSystemService(NotificationManager.class).notify(NOTIF_ID, n);
         } catch (Throwable ignored) {
+        }
+    }
+
+    // ---- Tiếng chuông: lần nhắc 2 (ký sổ) dùng ki_so_cv.mp3, lần 1 và 3 dùng cham_cong.mp3.
+    // Phát qua kênh âm lượng báo thức, lặp lại (nghỉ vài giây) cho tới khi bấm nút hoặc hết thời gian chờ.
+    private static MediaPlayer player;
+    private static final Runnable REPLAY = new Runnable() {
+        @Override
+        public void run() {
+            if (player != null) {
+                try {
+                    player.start();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    };
+
+    private static void startSound(Context c, int type) {
+        stopSound();
+        try {
+            AudioAttributes aa = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build();
+            MediaPlayer mp = MediaPlayer.create(c, type == 1 ? R.raw.ki_so_cv : R.raw.cham_cong,
+                    aa, AudioManager.AUDIO_SESSION_ID_GENERATE);
+            if (mp == null) return;
+            mp.setWakeMode(c, PowerManager.PARTIAL_WAKE_LOCK);
+            mp.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override
+                public void onCompletion(MediaPlayer m) {
+                    H.postDelayed(REPLAY, SOUND_GAP_MS);
+                }
+            });
+            mp.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                @Override
+                public boolean onError(MediaPlayer m, int what, int extra) {
+                    stopSound();
+                    return true;
+                }
+            });
+            player = mp;
+            mp.start();
+        } catch (Throwable ignored) {
+            stopSound();
+        }
+    }
+
+    private static void stopSound() {
+        H.removeCallbacks(REPLAY);
+        MediaPlayer mp = player;
+        player = null;
+        if (mp != null) {
+            try {
+                mp.stop();
+            } catch (Throwable ignored) {
+            }
+            try {
+                mp.release();
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -220,10 +295,11 @@ final class Popup {
         }
     }
 
-    /** Tắt rung, xóa thông báo, gỡ lớp phủ, đóng màn hình popup. */
+    /** Tắt chuông và rung, xóa thông báo, gỡ lớp phủ, đóng màn hình popup. */
     static void dismiss(Context ctx) {
         Context c = ctx.getApplicationContext();
         H.removeCallbacks(TIMEOUT);
+        stopSound();
         stopVibration(c);
         try {
             c.getSystemService(NotificationManager.class).cancel(NOTIF_ID);

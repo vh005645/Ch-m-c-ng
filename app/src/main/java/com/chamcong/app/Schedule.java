@@ -84,9 +84,13 @@ final class Schedule {
         return in;
     }
 
+    /** Nhắc sớm / muộn bao nhiêu phút so với giờ vào ca, giờ về. */
+    static final int REMIND_MIN = 2;
+    static final long REMIND_MS = REMIND_MIN * 60_000L;
+
     static final class Event {
         String day;   // yyyy-MM-dd (ngày bắt đầu ca)
-        int type;     // 0 = trước giờ vào 5 phút, 1 = sau giờ vào 5 phút, 2 = trước giờ về 5 phút
+        int type;     // 0 = trước giờ vào 2 phút, 1 = sau giờ vào 2 phút, 2 = trước giờ về 2 phút
         long time;
     }
 
@@ -104,7 +108,7 @@ final class Schedule {
             Info in = info(d, kip);
             if (!in.work) continue;
             long s = in.startMillis();
-            long[] t = {s - 5 * 60000L, s + 5 * 60000L, in.endMillis() - 5 * 60000L};
+            long[] t = {s - REMIND_MS, s + REMIND_MS, in.endMillis() - REMIND_MS};
             for (int k = 0; k < 3; k++) {
                 if (st != null && !st.shouldRemind(d.toString(), k)) continue;
                 if (t[k] > now && (best == null || t[k] < best.time)) {

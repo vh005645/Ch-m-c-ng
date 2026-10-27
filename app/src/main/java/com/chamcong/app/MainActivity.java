@@ -62,7 +62,7 @@ public class MainActivity extends Activity {
     private LinearLayout grid;
 
     private RadioGroup kipGroup;
-    private TextView planText;
+    private TextView planText, alertNote;
     private LinearLayout permBox;
 
     private final CompoundButton.OnCheckedChangeListener swListener =
@@ -331,8 +331,7 @@ public class MainActivity extends Activity {
             kipLine.setText("Chưa chọn kíp - vào tab Cài đặt ca-kíp để chọn.");
         } else {
             Schedule.Info in = Schedule.info(today, kip);
-            String state = (kip == Schedule.KIP_HC && in.work) ? "Đi làm" : in.label;
-            kipLine.setText(Schedule.KIP_NAMES[kip] + " - " + state);
+            kipLine.setText(Schedule.KIP_NAMES[kip] + " - " + stateText(in, kip));
         }
 
         monthLabel.setText("Tháng " + shown.getMonthValue() + "/" + shown.getYear());
@@ -452,10 +451,19 @@ public class MainActivity extends Activity {
             items = new String[]{"Tăng ca (tính công)", "Xóa trạng thái"};
             vals = new String[]{Store.OT, null};
         }
-        String title = DOW[d.getDayOfWeek().getValue() - 1] + ", " + d.format(DM) + "/" + d.getYear()
-                + " - " + in.label;
+        // Tiêu đề 2 dòng: dòng 1 = thứ, ngày tháng năm; dòng 2 = trạng thái làm việc hôm đó
+        // (xanh = có lịch làm việc, đỏ = tour / ngày nghỉ)
+        int kip = store.kip();
+        LinearLayout titleBox = new LinearLayout(this);
+        titleBox.setOrientation(LinearLayout.VERTICAL);
+        titleBox.setPadding(dp(24), dp(18), dp(24), dp(8));
+        titleBox.addView(text(DOW[d.getDayOfWeek().getValue() - 1] + ", " + d.format(DM) + "/" + d.getYear(),
+                20, DARK, true));
+        TextView stateView = text(stateText(in, kip), 18, kip < 0 ? GRAY : (in.work ? GREEN : RED), true);
+        stateView.setPadding(0, dp(4), 0, 0);
+        titleBox.addView(stateView);
         new AlertDialog.Builder(this)
-                .setTitle(title)
+                .setCustomTitle(titleBox)
                 .setItems(items, (dlg, which) -> {
                     store.setStatus(key, vals[which]);
                     Scheduler.scheduleNext(this);
@@ -467,6 +475,11 @@ public class MainActivity extends Activity {
     }
 
     // ----------------------------------------------------------- Tab 2: cài đặt
+
+    /** Trạng thái làm việc của một ngày: Ca 2 đầu, Tour xịn... (kíp hành chính: "Đi làm"). */
+    private String stateText(Schedule.Info in, int kip) {
+        return (kip == Schedule.KIP_HC && in.work) ? "Đi làm" : in.label;
+    }
 
     private View buildSettings() {
         ScrollView sv = new ScrollView(this);
@@ -504,11 +517,38 @@ public class MainActivity extends Activity {
         TextView hours = text("Ca 1: 06:00 - 14:00\nCa 2: 14:00 - 22:00\nCa 3: 22:00 - 06:00 hôm sau\n"
                 + "Hành chính: 07:00 - 11:30, 13:30 - 17:00\n\n"
                 + "Nhắc 3 lần mỗi ca (chỉ nhắc ngày đi làm, ngày tour không nhắc):\n"
-                + "1) Trước giờ vào 5 phút: chấm công (Chấm công / Nghỉ phép / Nghỉ tự do)\n"
-                + "2) Sau giờ vào 5 phút: ký sổ công việc (Xác nhận)\n"
-                + "3) Trước giờ về 5 phút: chấm công ra về (Xác nhận)", 14, DARK, false);
+                + "1) Trước giờ vào " + Schedule.REMIND_MIN + " phút: chấm công (Chấm công / Nghỉ phép / Nghỉ tự do)\n"
+                + "2) Sau giờ vào " + Schedule.REMIND_MIN + " phút: ký sổ công việc (Xác nhận)\n"
+                + "3) Trước giờ về " + Schedule.REMIND_MIN + " phút: chấm công ra về (Xác nhận)", 14, DARK, false);
         hours.setLineSpacing(dp(3), 1f);
         l.addView(hours);
+
+        l.addView(section("Kiểu nhắc nhở"));
+        Switch swSound = new Switch(this);
+        swSound.setText("Tiếng chuông");
+        swSound.setTextSize(17);
+        swSound.setTextColor(DARK);
+        swSound.setPadding(0, dp(8), 0, dp(8));
+        swSound.setChecked(store.sound());
+        Switch swVib = new Switch(this);
+        swVib.setText("Rung");
+        swVib.setTextSize(17);
+        swVib.setTextColor(DARK);
+        swVib.setPadding(0, dp(8), 0, dp(8));
+        swVib.setChecked(store.vibrate());
+        alertNote = text("", 13, GRAY, false);
+        swSound.setOnCheckedChangeListener((b, on) -> {
+            store.setSound(on);
+            refreshAlertNote();
+        });
+        swVib.setOnCheckedChangeListener((b, on) -> {
+            store.setVibrate(on);
+            refreshAlertNote();
+        });
+        l.addView(swSound);
+        l.addView(swVib);
+        l.addView(alertNote);
+        refreshAlertNote();
 
         l.addView(section("Quyền cần cấp để popup hoạt động"));
         permBox = new LinearLayout(this);
@@ -538,6 +578,16 @@ public class MainActivity extends Activity {
         });
         l.addView(test);
         return sv;
+    }
+
+    private void refreshAlertNote() {
+        if (alertNote == null) return;
+        if (!store.sound() && !store.vibrate()) {
+            alertNote.setText("Đang tắt cả chuông và rung: popup chỉ hiện trên màn hình, không có âm thanh hay rung.");
+        } else {
+            alertNote.setText("Chuông phát theo âm lượng báo thức (tăng âm lượng báo thức nếu nghe nhỏ). "
+                    + "Bấm \"Thử popup\" bên dưới để nghe thử.");
+        }
     }
 
     private TextView section(String s) {
